@@ -1,7 +1,9 @@
 import { WebSocketServer } from "ws";
-import { joinRoom, leaveRoom, broadcast } from "./connectionManager.js";
-import { getDocument, updateDocument } from "../collab/documentStore.js";
-import type { ClientMessage, InitMessage, BroadcastUpdateMessage } from "../types/messages.js";
+import { joinRoom, leaveRoom, broadcast, setClientVersion, getLowestActiveVersion } from "./connectionManager.js";
+import { getDocumentSession, pruneDocumentSession } from "../collab/documentSession.js";
+import { applyOperation } from "../collab/applyOperation.js";
+import { transform } from "../collab/transformer.js";
+import type { ClientMessage, InitMessage, BroadcastOperationMessage } from "../types/messages.js";
 
 export function setupWebSocket(server: any): void {
   const wss = new WebSocketServer({ server });
@@ -18,36 +20,78 @@ export function setupWebSocket(server: any): void {
         // JOIN document
         if (msg.type === "join") {
           currentDocId = msg.docId;
-          joinRoom(currentDocId, ws);
+          const session = getDocumentSession(currentDocId);
+          joinRoom(currentDocId, ws, session.version);
 
           // Send initial document content
-          const content = getDocument(currentDocId);
           const initMessage: InitMessage = {
             type: "init",
-            content,
+            content: session.content,
+            version: session.version,
           };
 
           ws.send(JSON.stringify(initMessage));
+          setClientVersion(currentDocId, ws, session.version);
           console.log(`Client initialized with doc ${currentDocId}`);
         }
 
-        // UPDATE document
-        if (msg.type === "update") {
+        // APPLY operation
+        if (msg.type === "operation") {
           if (!currentDocId) {
-            console.warn("Update received but no document joined");
+            console.warn("Operation received but no document joined");
             return;
           }
 
-          updateDocument(currentDocId, msg.content);
+          const session = getDocumentSession(currentDocId);
+          const incomingVersion = msg.operation.version;
 
-          // Broadcast update to other clients in same room
-          const updateMessage: BroadcastUpdateMessage = {
-            type: "update",
-            content: msg.content,
+          if (incomingVersion < session.baseVersion) {
+            const initMessage: InitMessage = {
+              type: "init",
+              content: session.content,
+              version: session.version,
+            };
+
+            ws.send(JSON.stringify(initMessage));
+            setClientVersion(currentDocId, ws, session.version);
+            console.warn(
+              `Client on doc ${currentDocId} is too far behind (client ${incomingVersion}, base ${session.baseVersion})`
+            );
+            return;
+          }
+
+          let incoming = { ...msg.operation };
+          const historyStartIndex = Math.max(0, incomingVersion - session.baseVersion);
+
+          for (let i = historyStartIndex; i < session.operations.length; i += 1) {
+            incoming = transform(incoming, session.operations[i]);
+          }
+
+          session.content = applyOperation(session.content, incoming);
+          session.version += 1;
+
+          const storedOperation = {
+            ...incoming,
+            version: session.version,
           };
 
-          broadcast(currentDocId, updateMessage, ws);
-          console.log(`Document ${currentDocId} updated and broadcasted`);
+          session.operations.push(storedOperation);
+          setClientVersion(currentDocId, ws, session.version);
+
+          // Broadcast transformed operation to every client in the room
+          const updateMessage: BroadcastOperationMessage = {
+            type: "operation",
+            operation: storedOperation,
+          };
+
+          broadcast(currentDocId, updateMessage);
+
+          const lowestActiveVersion = getLowestActiveVersion(currentDocId);
+          if (lowestActiveVersion !== null) {
+            pruneDocumentSession(session, lowestActiveVersion);
+          }
+
+          console.log(`Document ${currentDocId} updated to version ${session.version}`);
         }
       } catch (error) {
         console.error("Error processing WebSocket message:", error);
