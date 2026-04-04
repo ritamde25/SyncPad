@@ -6,7 +6,6 @@ import path from "path";
 
 import tempRoutes from "./routes/tempRoutes.js";
 import { connectDB } from "./config/db.js";
-import rateLimiter from "./middleware/rateLimiter.js";
 import { setupWebSocket } from "./ws/wsServer.js";
 
 const app = express();
@@ -18,7 +17,6 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 app.use(express.json());
-app.use(rateLimiter);
 
 app.use("/", tempRoutes);
 
