@@ -4,9 +4,23 @@ import { getDocumentSession, pruneDocumentSession } from "../collab/documentSess
 import { applyOperation } from "../collab/applyOperation.js";
 import { transform } from "../collab/transformer.js";
 import type { ClientMessage, InitMessage, BroadcastOperationMessage } from "../types/messages.js";
+import { onRedisOperation, publishOperation, subscribeToDocument, unsubscribeFromDocument } from "../redis/pubsub.js";
 
 export function setupWebSocket(server: any): void {
   const wss = new WebSocketServer({ server });
+  const disposeRedisListener = onRedisOperation((docId, operation) => {
+    const updateMessage: BroadcastOperationMessage = {
+      type: "operation",
+      operation,
+    };
+
+    // Redis-received operations are forwarded only; OT processing happens on the origin server.
+    broadcast(docId, updateMessage);
+  });
+
+  wss.on("close", () => {
+    disposeRedisListener();
+  });
 
   wss.on("connection", (ws) => {
     let currentDocId: string | null = null;
@@ -22,6 +36,9 @@ export function setupWebSocket(server: any): void {
           currentDocId = msg.docId;
           const session = getDocumentSession(currentDocId);
           joinRoom(currentDocId, ws, session.version);
+          subscribeToDocument(currentDocId).catch((error) => {
+            console.error(`Failed to subscribe to Redis channel for doc ${currentDocId}:`, error);
+          });
 
           // Send initial document content
           const initMessage: InitMessage = {
@@ -85,6 +102,9 @@ export function setupWebSocket(server: any): void {
           };
 
           broadcast(currentDocId, updateMessage);
+          publishOperation(currentDocId, storedOperation).catch((error) => {
+            console.error(`Failed to publish operation for doc ${currentDocId}:`, error);
+          });
 
           const lowestActiveVersion = getLowestActiveVersion(currentDocId);
           if (lowestActiveVersion !== null) {
@@ -101,6 +121,9 @@ export function setupWebSocket(server: any): void {
     ws.on("close", () => {
       if (currentDocId) {
         leaveRoom(currentDocId, ws);
+        unsubscribeFromDocument(currentDocId).catch((error) => {
+          console.error(`Failed to unsubscribe from Redis channel for doc ${currentDocId}:`, error);
+        });
         console.log(`Client disconnected from doc ${currentDocId}`);
       }
     });
