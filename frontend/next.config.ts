@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "export",
   allowedDevOrigins: [
     "192.168.0.5",
     "http://192.168.0.5:3000"
