@@ -7,12 +7,11 @@ export function Editor() {
   const searchParams = useSearchParams();
   const docId = searchParams.get("docId") || "default-doc";
 
-  const { content, setContent, isConnected, sendUpdate } =
+  const { content, isConnected, sendUpdate } =
     useWebSocket(docId);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
-    setContent(newContent);
     sendUpdate(newContent);
   };
 

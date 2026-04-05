@@ -9,12 +9,34 @@ import { onRedisOperation, publishOperation, subscribeToDocument, unsubscribeFro
 export function setupWebSocket(server: any): void {
   const wss = new WebSocketServer({ server });
   const disposeRedisListener = onRedisOperation((docId, operation) => {
+    const session = getDocumentSession(docId);
+
+    if (operation.version <= session.version) {
+      return;
+    }
+
+    if (operation.version !== session.version + 1) {
+      console.warn(
+        `Out-of-sequence Redis operation for doc ${docId}: expected ${session.version + 1}, got ${operation.version}`
+      );
+      return;
+    }
+
+    session.content = applyOperation(session.content, operation);
+    session.version = operation.version;
+    session.operations.push(operation);
+
+    const lowestActiveVersion = getLowestActiveVersion(docId);
+    if (lowestActiveVersion !== null) {
+      pruneDocumentSession(session, lowestActiveVersion);
+    }
+
     const updateMessage: BroadcastOperationMessage = {
       type: "operation",
       operation,
     };
 
-    // Redis-received operations are forwarded only; OT processing happens on the origin server.
+    // Redis operations are already transformed on the origin server, so this server only applies and forwards.
     broadcast(docId, updateMessage);
   });
 
@@ -73,6 +95,21 @@ export function setupWebSocket(server: any): void {
             setClientVersion(currentDocId, ws, session.version);
             console.warn(
               `Client on doc ${currentDocId} is too far behind (client ${incomingVersion}, base ${session.baseVersion})`
+            );
+            return;
+          }
+
+          if (incomingVersion > session.version) {
+            const initMessage: InitMessage = {
+              type: "init",
+              content: session.content,
+              version: session.version,
+            };
+
+            ws.send(JSON.stringify(initMessage));
+            setClientVersion(currentDocId, ws, session.version);
+            console.warn(
+              `Client on doc ${currentDocId} sent future version (client ${incomingVersion}, server ${session.version})`
             );
             return;
           }
