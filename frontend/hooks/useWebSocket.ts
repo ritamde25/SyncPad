@@ -103,9 +103,14 @@ export function useWebSocket(docId: string) {
 
   // Establish WebSocket connection
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = "192.168.0.5:8080";
-    const wsUrl = `${protocol}//${host}`;
+    const SocketUrl =
+      process.env.NODE_ENV === "production"
+        ? window.location.origin
+        : "http://localhost:8080";
+    const resolvedUrl = SocketUrl;
+    const parsedUrl = new URL(resolvedUrl);
+    const wsProtocol = parsedUrl.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProtocol}//${parsedUrl.host}`;
 
     console.log(`Connecting to WebSocket: ${wsUrl}`);
 
