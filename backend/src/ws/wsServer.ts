@@ -1,6 +1,11 @@
 import { WebSocketServer } from "ws";
 import { joinRoom, leaveRoom, broadcast, setClientVersion, getLowestActiveVersion } from "./connectionManager.js";
-import { getDocumentSession, pruneDocumentSession } from "../collab/documentSession.js";
+import {
+  ensureDocumentSession,
+  markDocumentSessionDirty,
+  peekDocumentSession,
+  pruneDocumentSession,
+} from "../collab/documentSession.js";
 import { applyOperation } from "../collab/applyOperation.js";
 import { transform } from "../collab/transformer.js";
 import type { ClientMessage, InitMessage, BroadcastOperationMessage } from "../types/messages.js";
@@ -9,7 +14,11 @@ import { onRedisOperation, publishOperation, subscribeToDocument, unsubscribeFro
 export function setupWebSocket(server: any): void {
   const wss = new WebSocketServer({ server });
   const disposeRedisListener = onRedisOperation((docId, operation) => {
-    const session = getDocumentSession(docId);
+    const session = peekDocumentSession(docId);
+
+    if (!session) {
+      return;
+    }
 
     if (operation.version <= session.version) {
       return;
@@ -25,6 +34,7 @@ export function setupWebSocket(server: any): void {
     session.content = applyOperation(session.content, operation);
     session.version = operation.version;
     session.operations.push(operation);
+    markDocumentSessionDirty(docId);
 
     const lowestActiveVersion = getLowestActiveVersion(docId);
     if (lowestActiveVersion !== null) {
@@ -49,14 +59,14 @@ export function setupWebSocket(server: any): void {
 
     console.log("New WebSocket connection");
 
-    ws.on("message", (data) => {
+    ws.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString()) as ClientMessage;
 
         // JOIN document
         if (msg.type === "join") {
           currentDocId = msg.docId;
-          const session = getDocumentSession(currentDocId);
+          const session = await ensureDocumentSession(currentDocId);
           joinRoom(currentDocId, ws, session.version);
           subscribeToDocument(currentDocId).catch((error) => {
             console.error(`Failed to subscribe to Redis channel for doc ${currentDocId}:`, error);
@@ -81,7 +91,13 @@ export function setupWebSocket(server: any): void {
             return;
           }
 
-          const session = getDocumentSession(currentDocId);
+          const session = peekDocumentSession(currentDocId);
+
+          if (!session) {
+            console.warn(`Operation received for unloaded document ${currentDocId}`);
+            return;
+          }
+
           const incomingVersion = msg.operation.version;
 
           if (incomingVersion < session.baseVersion) {
@@ -131,6 +147,7 @@ export function setupWebSocket(server: any): void {
 
           session.operations.push(storedOperation);
           setClientVersion(currentDocId, ws, session.version);
+          markDocumentSessionDirty(currentDocId);
 
           // Broadcast transformed operation to every client in the room
           const updateMessage: BroadcastOperationMessage = {
