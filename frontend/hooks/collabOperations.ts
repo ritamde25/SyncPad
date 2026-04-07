@@ -4,8 +4,11 @@ export interface Operation {
   value?: string;
   length?: number;
   clientId: string;
+  opId: string;
   version: number;
 }
+
+export type OperationDraft = Omit<Operation, "opId">;
 
 function clampPosition(position: number, contentLength: number): number {
   return Math.max(0, Math.min(position, contentLength));
@@ -37,7 +40,7 @@ export function transform(incoming: Operation, existing: Operation): Operation {
         transformed.position += existingLength;
       } else if (
         transformed.position === existing.position &&
-        transformed.clientId > existing.clientId
+        transformed.opId > existing.opId
       ) {
         transformed.position += existingLength;
       }
@@ -111,7 +114,7 @@ export function deriveOperations(
   nextContent: string,
   clientId: string,
   baseVersion: number
-): Operation[] {
+): OperationDraft[] {
   if (previousContent === nextContent) {
     return [];
   }
@@ -140,7 +143,7 @@ export function deriveOperations(
   const removedText = previousContent.slice(start, previousEnd + 1);
   const insertedText = nextContent.slice(start, nextEnd + 1);
 
-  const operations: Operation[] = [];
+  const operations: OperationDraft[] = [];
 
   if (removedText.length > 0) {
     operations.push({

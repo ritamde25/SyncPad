@@ -1,9 +1,13 @@
-import { Schema, model, models } from "mongoose";
+import { Schema, model } from "mongoose";
 
 export interface DocumentRecord {
   _id: string;
+  title: string;
   content: string;
   version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy: string;
 }
 
 const documentSchema = new Schema<DocumentRecord>(
@@ -12,15 +16,31 @@ const documentSchema = new Schema<DocumentRecord>(
       type: String,
       required: true,
     },
-    content: {
+    title: {
       type: String,
       required: true,
+      default: "New Document",
+    },
+    content: {
+      type: String,
       default: "",
     },
     version: {
       type: Number,
       required: true,
       default: 0,
+    },
+    createdBy: {
+      type: String,
+      required: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now,
     },
   },
   {

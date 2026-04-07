@@ -4,5 +4,6 @@ export type Operation = {
   value?: string;
   length?: number;
   clientId: string;
+  opId: string;
   version: number;
 };

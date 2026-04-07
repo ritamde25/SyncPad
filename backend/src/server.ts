@@ -4,7 +4,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 
-import tempRoutes from "./routes/tempRoutes.js";
+import documentRoutes from "./routes/documents.js";
 import { connectDB } from "./config/db.js";
 import { setupWebSocket } from "./ws/wsServer.js";
 
@@ -18,7 +18,7 @@ if (process.env.NODE_ENV !== "production") {
 
 app.use(express.json());
 
-app.use("/api", tempRoutes);
+app.use("/documents", documentRoutes);
 
 if (process.env.NODE_ENV === "production") {
     const frontendBuildPath = path.join(__dirname, "../frontend/out");

@@ -1,5 +1,9 @@
 import type { Operation } from "../types/operation.js";
 
+function operationOrderKey(op: Operation): string {
+  return op.opId;
+}
+
 function cloneOperation(op: Operation): Operation {
   return {
     ...op,
@@ -24,7 +28,10 @@ export function transform(incoming: Operation, existing: Operation): Operation {
     if (transformed.type === "insert") {
       if (transformed.position > existing.position) {
         transformed.position += existingLength;
-      } else if (transformed.position === existing.position && transformed.clientId > existing.clientId) {
+      } else if (
+        transformed.position === existing.position &&
+        operationOrderKey(transformed) > operationOrderKey(existing)
+      ) {
         transformed.position += existingLength;
       }
       return transformed;

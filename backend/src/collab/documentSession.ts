@@ -28,17 +28,6 @@ function startAutoSave(docId: string): void {
   saveTimers.set(docId, timer);
 }
 
-function stopAutoSave(docId: string): void {
-  const timer = saveTimers.get(docId);
-
-  if (!timer) {
-    return;
-  }
-
-  clearInterval(timer);
-  saveTimers.delete(docId);
-}
-
 export function getDocumentSession(docId: string): DocumentSession {
   let session = sessions.get(docId);
 
@@ -69,23 +58,18 @@ export async function ensureDocumentSession(docId: string): Promise<DocumentSess
   }
 
   const loadPromise = (async () => {
+    const snapshot = await loadDocumentSnapshot(docId);
     const session = new DocumentSession();
+    session.content = snapshot.content;
+    session.version = snapshot.version;
+    session.baseVersion = snapshot.version;
     sessions.set(docId, session);
-
-    try {
-      const snapshot = await loadDocumentSnapshot(docId);
-      session.content = snapshot.content;
-      session.version = snapshot.version;
-      session.baseVersion = snapshot.version;
-      return session;
-    } catch (error) {
-      console.error(`Failed to load document ${docId} from MongoDB:`, error);
-      return session;
-    } finally {
+    startAutoSave(docId);
+    return session;
+  })()
+    .finally(() => {
       loadingSessions.delete(docId);
-      startAutoSave(docId);
-    }
-  })();
+    });
 
   loadingSessions.set(docId, loadPromise);
   return loadPromise;
@@ -141,14 +125,7 @@ export function clearDocumentSessions(): void {
   saveTimers.forEach((timer) => clearInterval(timer));
   saveTimers.clear();
   loadingSessions.clear();
-  sessions.forEach((_, docId) => {
-    stopAutoSave(docId);
-  });
   sessions.clear();
-}
-
-export function getAllDocumentSessions(): Map<string, DocumentSession> {
-  return new Map(sessions);
 }
 
 export function pruneDocumentSession(

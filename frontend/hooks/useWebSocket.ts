@@ -1,17 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import {
-  applyOperationToContent,
-  deriveOperations,
-  transform,
-  type Operation,
-} from "./collabOperations";
-import {
-  generateClientId,
-  resolveWebSocketUrl,
-  type WebSocketMessage,
-} from "./socketProtocol";
+import { applyOperationToContent, deriveOperations, transform, type Operation } from "./collabOperations";
+import { generateId, resolveWebSocketUrl, type WebSocketMessage } from "./socketProtocol";
 
 export function useWebSocket(docId: string) {
   const [content, setContent] = useState<string>("");
@@ -22,10 +13,10 @@ export function useWebSocket(docId: string) {
   const pendingOperationsRef = useRef<Operation[]>([]);
   const clientIdRef = useRef<string>("");
 
-  // Establish WebSocket connection
+  // Establish Socket connection
   useEffect(() => {
     if (!clientIdRef.current) {
-      clientIdRef.current = generateClientId();
+      clientIdRef.current = generateId("client");
     }
 
     const wsUrl = resolveWebSocketUrl();
@@ -35,6 +26,10 @@ export function useWebSocket(docId: string) {
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) {
+        return;
+      }
+
       console.log("WebSocket connected");
       setIsConnected(true);
 
@@ -49,43 +44,50 @@ export function useWebSocket(docId: string) {
     };
 
     ws.onmessage = (event) => {
+      if (wsRef.current !== ws) {
+        return;
+      }
+
       try {
         const msg: WebSocketMessage = JSON.parse(event.data);
 
         if (msg.type === "init") {
-          console.log("Received initial document content");
-          const nextContent = msg.content || "";
-          const nextVersion = msg.version || 0;
-
           pendingOperationsRef.current = [];
-          contentRef.current = nextContent;
-          versionRef.current = nextVersion;
-          setContent(nextContent);
+          contentRef.current = msg.content || "";
+          versionRef.current = msg.version || 0;
+          setContent(contentRef.current);
+          return;
         }
 
         if (msg.type === "operation" && msg.operation) {
-          if (msg.operation.clientId === clientIdRef.current) {
-            pendingOperationsRef.current.shift();
-            versionRef.current = msg.operation.version;
+          const incomingOperation = msg.operation as Operation;
+
+          const ownOperationIndex = pendingOperationsRef.current.findIndex(
+            (operation) => operation.opId === incomingOperation.opId
+          );
+
+          if (ownOperationIndex !== -1) {
+            // Own operation echoed back from server
+            pendingOperationsRef.current.splice(ownOperationIndex, 1);
+            versionRef.current = incomingOperation.version;
             return;
           }
 
-          console.log("Received remote operation");
-          let transformedIncoming = { ...(msg.operation as Operation) };
-          const nextPending: Operation[] = [];
+          // Remote operation from another client - need to transform against pending
+          let transformedIncoming = { ...incomingOperation };
+          const updatedPending: Operation[] = [];
 
           for (const pendingOp of pendingOperationsRef.current) {
             const pendingTransformed = transform(pendingOp, transformedIncoming);
             transformedIncoming = transform(transformedIncoming, pendingOp);
-            nextPending.push(pendingTransformed);
+            updatedPending.push(pendingTransformed);
           }
 
-          pendingOperationsRef.current = nextPending;
-          const nextContent = applyOperationToContent(contentRef.current, transformedIncoming);
-          contentRef.current = nextContent;
+          pendingOperationsRef.current = updatedPending;
+          contentRef.current = applyOperationToContent(contentRef.current, transformedIncoming);
           versionRef.current = msg.operation.version;
-
-          setContent(nextContent);
+          setContent(contentRef.current);
+          return;
         }
       } catch (error) {
         console.error("Error parsing WebSocket message:", error);
@@ -93,20 +95,31 @@ export function useWebSocket(docId: string) {
     };
 
     ws.onclose = () => {
+      if (wsRef.current !== ws) {
+        return;
+      }
+
+      wsRef.current = null;
       console.log("WebSocket disconnected");
       setIsConnected(false);
     };
 
     ws.onerror = (error) => {
+      if (wsRef.current !== ws) {
+        return;
+      }
+
       console.error("WebSocket error:", error);
     };
 
     wsRef.current = ws;
 
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
+      if (wsRef.current === ws) {
+        wsRef.current = null;
       }
+
+      ws.close();
     };
   }, [docId]);
 
@@ -126,11 +139,16 @@ export function useWebSocket(docId: string) {
       }
 
       operations.forEach((operation) => {
-        pendingOperationsRef.current.push(operation);
+        const operationWithId: Operation = {
+          ...operation,
+          opId: generateId("op"),
+        };
+
+        pendingOperationsRef.current.push(operationWithId);
         wsRef.current?.send(
           JSON.stringify({
             type: "operation",
-            operation,
+            operation: operationWithId,
           })
         );
       });

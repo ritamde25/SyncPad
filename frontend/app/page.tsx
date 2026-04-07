@@ -1,14 +1,14 @@
 import { Suspense } from "react";
-import { Editor } from "@/components/Editor";
+import { DocsList } from "@/components/DocsList";
 
-function EditorContent() {
-  return <Editor />;
+function DocsContent() {
+  return <DocsList />;
 }
 
 export default function Home() {
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      <EditorContent />
+      <DocsContent />
     </Suspense>
   );
 }

@@ -1,4 +1,5 @@
 import type { Operation } from "./collabOperations";
+import { resolveWebSocketUrl } from "@/lib/runtimeUrls";
 
 export interface WebSocketMessage {
   type: "join" | "init" | "operation";
@@ -9,21 +10,12 @@ export interface WebSocketMessage {
   clientId?: string;
 }
 
-export function generateClientId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
+export function generateId(prefix: string): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${prefix}-${crypto.randomUUID()}`;
   }
 
-  return `client-${Date.now().toString(36)}`;
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function resolveWebSocketUrl(): string {
-  const origin =
-    process.env.NODE_ENV === "production"
-      ? window.location.origin
-      : "http://localhost:8080";
-
-  const parsedUrl = new URL(origin);
-  const wsProtocol = parsedUrl.protocol === "https:" ? "wss:" : "ws:";
-  return `${wsProtocol}//${parsedUrl.host}`;
-}
+export { resolveWebSocketUrl };
