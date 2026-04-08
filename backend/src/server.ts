@@ -23,11 +23,11 @@ app.use("/documents", documentRoutes);
 if (process.env.NODE_ENV === "production") {
     const frontendBuildPath = path.join(__dirname, "../frontend/out");
 
-    app.use(express.static(frontendBuildPath));
-
-    app.get(["/doc", "/doc/"], (_req, res) => {
+    app.get(/^\/doc\/?$/, (_req, res) => {
         res.sendFile(path.join(frontendBuildPath, "doc.html"));
     });
+
+    app.use(express.static(frontendBuildPath, { redirect: false }));
 
     app.use((req, res) => {
         res.sendFile(path.join(frontendBuildPath, "index.html"));
