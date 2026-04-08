@@ -25,6 +25,10 @@ if (process.env.NODE_ENV === "production") {
 
     app.use(express.static(frontendBuildPath));
 
+    app.get(["/doc", "/doc/"], (_req, res) => {
+        res.sendFile(path.join(frontendBuildPath, "doc.html"));
+    });
+
     app.use((req, res) => {
         res.sendFile(path.join(frontendBuildPath, "index.html"));
     });
