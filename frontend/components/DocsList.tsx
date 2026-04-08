@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getUserId } from "@/lib/userId";
+import { generateId } from "@/hooks/socketProtocol";
 import { toApiUrl } from "@/lib/runtimeUrls";
 
 interface Document {
@@ -13,51 +13,72 @@ interface Document {
   createdBy: string;
 }
 
+function getOrCreateUserId(): string {
+  const existingUserId = localStorage.getItem("userId");
+
+  if (existingUserId) {
+    return existingUserId;
+  }
+
+  const nextUserId = generateId("user");
+  localStorage.setItem("userId", nextUserId);
+  return nextUserId;
+}
+
 export function DocsList() {
   const router = useRouter();
   const [docs, setDocs] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState("");
 
   useEffect(() => {
-    const id = getUserId();
-    setUserId(id);
+    const userId = getOrCreateUserId();
 
     const fetchDocs = async () => {
       setLoading(true);
-      const response = await fetch(toApiUrl(`/documents?userId=${id}`)).catch(() => null);
 
-      if (!response?.ok) {
+      try {
+        const response = await fetch(toApiUrl(`/documents?userId=${encodeURIComponent(userId)}`));
+
+        if (!response.ok) {
+          setDocs([]);
+          return;
+        }
+
+        const fetchedDocs = (await response.json()) as Document[];
+        setDocs(Array.isArray(fetchedDocs) ? fetchedDocs : []);
+      } catch {
         setDocs([]);
+      } finally {
         setLoading(false);
-        return;
       }
-
-      setDocs(await response.json());
-      setLoading(false);
     };
 
-    fetchDocs();
+    void fetchDocs();
   }, []);
 
   const handleCreateDoc = async () => {
-    const response = await fetch(toApiUrl("/documents"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "New Document",
-        userId,
-      }),
-    }).catch(() => null);
+    const userId = getOrCreateUserId();
 
-    if (!response?.ok) {
-      return;
+    try {
+      const response = await fetch(toApiUrl("/documents"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "New Document",
+          userId,
+        }),
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const doc = (await response.json()) as Document;
+      setDocs((prevDocs) => [doc, ...prevDocs]);
+      router.push(`/doc?docId=${doc._id}`);
+    } catch {
+      // Keep UX simple for MVP: failed create silently keeps the current list.
     }
-
-    const doc = await response.json();
-
-    setDocs((prevDocs) => [doc, ...prevDocs]);
-    router.push(`/doc?docId=${doc._id}`);
   };
 
   const handleOpenDoc = (docId: string) => {

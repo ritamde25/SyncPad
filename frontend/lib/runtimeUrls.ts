@@ -7,7 +7,7 @@ function resolveApiOrigin(): string {
     return trimTrailingSlash(window.location.origin);
   }
 
-  return "http://192.168.0.5:8080";
+  return "http://192.168.0.3:8080";
 }
 
 export function toApiUrl(path: string): string {

@@ -1,9 +1,5 @@
 import type { Operation } from "../types/operation.js";
 
-function operationOrderKey(op: Operation): string {
-  return op.opId;
-}
-
 function cloneOperation(op: Operation): Operation {
   return {
     ...op,
@@ -30,7 +26,7 @@ export function transform(incoming: Operation, existing: Operation): Operation {
         transformed.position += existingLength;
       } else if (
         transformed.position === existing.position &&
-        operationOrderKey(transformed) > operationOrderKey(existing)
+        transformed.opId > existing.opId
       ) {
         transformed.position += existingLength;
       }
@@ -72,6 +68,11 @@ export function transform(incoming: Operation, existing: Operation): Operation {
   }
 
   if (incomingStart < existingStart) {
+    if (incomingEnd > existingEnd) {
+      transformed.length = Math.max(0, incomingLength - existingLength);
+      return transformed;
+    }
+
     const overlap = incomingEnd - existingStart;
     transformed.length = Math.max(0, incomingLength - overlap);
     return transformed;

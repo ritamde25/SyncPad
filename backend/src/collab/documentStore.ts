@@ -39,13 +39,3 @@ export async function saveDocumentSnapshot(
     }
   );
 }
-
-export async function getDocument(docId: string): Promise<string> {
-  const snapshot = await loadDocumentSnapshot(docId);
-  return snapshot.content;
-}
-
-export async function updateDocument(docId: string, content: string): Promise<void> {
-  const snapshot = await loadDocumentSnapshot(docId);
-  await saveDocumentSnapshot(docId, content, snapshot.version);
-}

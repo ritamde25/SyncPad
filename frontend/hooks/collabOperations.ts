@@ -82,6 +82,11 @@ export function transform(incoming: Operation, existing: Operation): Operation {
   }
 
   if (incomingStart < existingStart) {
+    if (incomingEnd > existingEnd) {
+      transformed.length = Math.max(0, incomingLength - existingLength);
+      return transformed;
+    }
+
     const overlap = incomingEnd - existingStart;
     transformed.length = Math.max(0, incomingLength - overlap);
     return transformed;

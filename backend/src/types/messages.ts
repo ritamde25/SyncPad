@@ -4,14 +4,26 @@
 
 import type { Operation } from "./operation.js";
 
+export interface Cursor {
+  userId: string;
+  position: number;
+  selectionEnd?: number;
+}
+
 export interface JoinMessage {
   type: "join";
   docId: string;
+  clientId: string;
 }
 
 export interface OperationMessage {
   type: "operation";
   operation: Operation;
+}
+
+export interface CursorMessage {
+  type: "cursor";
+  cursor: Cursor;
 }
 
 export interface InitMessage {
@@ -25,6 +37,16 @@ export interface BroadcastOperationMessage {
   operation: Operation;
 }
 
-export type ClientMessage = JoinMessage | OperationMessage;
-export type ServerMessage = InitMessage | BroadcastOperationMessage;
+export interface BroadcastCursorMessage {
+  type: "cursor";
+  cursor: Cursor;
+}
+
+export interface CursorRemoveMessage {
+  type: "cursor-remove";
+  userId: string;
+}
+
+export type ClientMessage = JoinMessage | OperationMessage | CursorMessage;
+export type ServerMessage = InitMessage | BroadcastOperationMessage | BroadcastCursorMessage | CursorRemoveMessage;
 

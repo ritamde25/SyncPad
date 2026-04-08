@@ -9,7 +9,6 @@ export class DocumentSession {
   dirty = false;
   operationsSinceSave = 0;
   saveInFlight = false;
-  saveRequested = false;
 }
 
 const sessions = new Map<string, DocumentSession>();
@@ -93,31 +92,32 @@ export function markDocumentSessionDirty(docId: string): void {
 export async function flushDocumentSession(docId: string): Promise<void> {
   const session = sessions.get(docId);
 
-  if (!session || !session.dirty) {
-    return;
-  }
-
-  if (session.saveInFlight) {
-    session.saveRequested = true;
+  if (!session || !session.dirty || session.saveInFlight) {
     return;
   }
 
   session.saveInFlight = true;
-  session.saveRequested = false;
+  const snapshotContent = session.content;
+  const snapshotVersion = session.version;
+  let shouldFlushAgain = false;
 
   try {
-    await saveDocumentSnapshot(docId, session.content, session.version);
-    session.dirty = false;
-    session.operationsSinceSave = 0;
+    await saveDocumentSnapshot(docId, snapshotContent, snapshotVersion);
+
+    if (session.content === snapshotContent && session.version === snapshotVersion) {
+      session.dirty = false;
+      session.operationsSinceSave = 0;
+    } else {
+      shouldFlushAgain = true;
+    }
   } catch (error) {
     console.error(`Failed to save document ${docId} to MongoDB:`, error);
   } finally {
     session.saveInFlight = false;
+  }
 
-    if (session.saveRequested || session.dirty) {
-      session.saveRequested = false;
-      void flushDocumentSession(docId);
-    }
+  if (shouldFlushAgain && session.dirty) {
+    void flushDocumentSession(docId);
   }
 }
 
@@ -126,25 +126,4 @@ export function clearDocumentSessions(): void {
   saveTimers.clear();
   loadingSessions.clear();
   sessions.clear();
-}
-
-export function pruneDocumentSession(
-  session: DocumentSession,
-  lowestActiveVersion: number
-): void {
-  const targetVersion = Math.max(session.baseVersion, Math.min(lowestActiveVersion, session.version));
-
-  if (targetVersion <= session.baseVersion) {
-    return;
-  }
-
-  const keepFromIndex = session.operations.findIndex((operation) => operation.version > targetVersion);
-
-  if (keepFromIndex === -1) {
-    session.operations = [];
-  } else {
-    session.operations = session.operations.slice(keepFromIndex);
-  }
-
-  session.baseVersion = targetVersion;
 }

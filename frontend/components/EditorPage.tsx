@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { notFound } from "next/navigation";
 import { Editor } from "@/components/Editor";
 import { toApiUrl } from "@/lib/runtimeUrls";
 
@@ -21,25 +20,43 @@ export function EditorPage({ params }: EditorPageProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchDoc = async () => {
       setLoading(true);
 
       try {
         const response = await fetch(toApiUrl(`/documents/${params.id}`));
-        if (!response.ok) return notFound();
 
-        const data = await response.json();
-        if (!data) return notFound();
+        if (!response.ok) {
+          if (!cancelled) {
+            setDoc(null);
+          }
 
-        setDoc(data);
-      } catch (err) {
-        return notFound();
+          return;
+        }
+
+        const data = (await response.json()) as DocumentInfo | null;
+
+        if (!cancelled) {
+          setDoc(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setDoc(null);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
-    fetchDoc();
+    void fetchDoc();
+
+    return () => {
+      cancelled = true;
+    };
   }, [params.id]);
 
   if (loading) {
@@ -52,7 +69,13 @@ export function EditorPage({ params }: EditorPageProps) {
     );
   }
 
-  return (
-    <Editor docId={params.id} title={doc!.title} />
-  );
+  if (!doc) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-900">
+        <p className="text-zinc-600 dark:text-zinc-400">Document not found.</p>
+      </div>
+    );
+  }
+
+  return <Editor docId={params.id} title={doc.title} />;
 }
