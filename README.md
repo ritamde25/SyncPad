@@ -6,13 +6,7 @@ Real-time collaborative document editing built with a TypeScript backend and a N
 
 | Collaborative Editing Demo (2 Clients) |
 | --- |
-| Add your GIF here: `docs/assets/collab-showcase.gif` |
-
-Example markdown to use once your GIF is added:
-
-```md
-![SyncPad collaborative editing with two clients](docs/assets/collab-showcase.gif)
-```
+| ![SyncPad collaborative editing with two clients](assets/showcase.gif) |
 
 ## Features
 
