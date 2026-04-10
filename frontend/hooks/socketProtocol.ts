@@ -23,6 +23,11 @@ export interface OperationMessage {
   operation: Operation;
 }
 
+export interface ResyncMessage {
+  type: "resync";
+  docId: string;
+}
+
 export interface CursorMessage {
   type: "cursor";
   cursor: Cursor;
@@ -33,7 +38,7 @@ export interface CursorRemoveMessage {
   userId: string;
 }
 
-export type ClientMessage = JoinMessage | OperationMessage | CursorMessage;
+export type ClientMessage = JoinMessage | OperationMessage | CursorMessage | ResyncMessage;
 export type ServerMessage = InitMessage | OperationMessage | CursorMessage | CursorRemoveMessage;
 export type WebSocketMessage = ClientMessage | ServerMessage;
 

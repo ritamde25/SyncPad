@@ -47,6 +47,7 @@ export function useWebSocket(docId: string) {
   const contentRef = useRef<string>("");
   const versionRef = useRef<number>(0);
   const pendingOperationsRef = useRef<Operation[]>([]);
+  const resyncRequestedRef = useRef<boolean>(false);
   const clientIdRef = useRef<string>("");
   const remoteCursorsRef = useRef<Map<string, Cursor>>(new Map());
   const lastCursorSignatureRef = useRef<string>("");
@@ -79,6 +80,26 @@ export function useWebSocket(docId: string) {
     syncRemoteCursors();
   }, [syncRemoteCursors]);
 
+  const requestResync = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    if (resyncRequestedRef.current) {
+      return;
+    }
+
+    resyncRequestedRef.current = true;
+    pendingOperationsRef.current = [];
+
+    const resyncMessage: ClientMessage = {
+      type: "resync",
+      docId,
+    };
+
+    wsRef.current.send(JSON.stringify(resyncMessage));
+  }, [docId]);
+
   // Establish Socket connection
   useEffect(() => {
     if (!clientIdRef.current) {
@@ -98,6 +119,7 @@ export function useWebSocket(docId: string) {
         return;
       }
 
+      resyncRequestedRef.current = false;
       setIsConnected(true);
 
       // Join the document
@@ -124,6 +146,7 @@ export function useWebSocket(docId: string) {
 
       try {
         if (parsedMessage.type === "init") {
+          resyncRequestedRef.current = false;
           pendingOperationsRef.current = [];
           contentRef.current = parsedMessage.content;
           versionRef.current = parsedMessage.version;
@@ -156,6 +179,12 @@ export function useWebSocket(docId: string) {
         }
 
         const incomingOperation = parsedMessage.operation;
+        const expectedVersion = versionRef.current + 1;
+
+        if (incomingOperation.version !== expectedVersion) {
+          requestResync();
+          return;
+        }
 
         const ownOperationIndex = pendingOperationsRef.current.findIndex(
           (operation) => operation.opId === incomingOperation.opId
@@ -200,6 +229,7 @@ export function useWebSocket(docId: string) {
       }
 
       wsRef.current = null;
+      resyncRequestedRef.current = false;
       setIsConnected(false);
     };
 
@@ -220,7 +250,7 @@ export function useWebSocket(docId: string) {
 
       ws.close();
     };
-  }, [docId, syncRemoteCursors, updateRemoteCursorsFromOperation]);
+  }, [docId, requestResync, syncRemoteCursors, updateRemoteCursorsFromOperation]);
 
   // Send updates to server
   const sendUpdate = useCallback((newContent: string) => {

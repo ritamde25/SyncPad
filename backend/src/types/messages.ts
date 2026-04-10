@@ -26,6 +26,11 @@ export interface CursorMessage {
   cursor: Cursor;
 }
 
+export interface ResyncMessage {
+  type: "resync";
+  docId: string;
+}
+
 export interface InitMessage {
   type: "init";
   content: string;
@@ -47,6 +52,6 @@ export interface CursorRemoveMessage {
   userId: string;
 }
 
-export type ClientMessage = JoinMessage | OperationMessage | CursorMessage;
+export type ClientMessage = JoinMessage | OperationMessage | CursorMessage | ResyncMessage;
 export type ServerMessage = InitMessage | BroadcastOperationMessage | BroadcastCursorMessage | CursorRemoveMessage;
 

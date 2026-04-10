@@ -137,6 +137,18 @@ export function setupWebSocket(server: any): void {
             return;
           }
 
+          case "resync": {
+            const targetDocId = currentDocId ?? parsedMessage.docId;
+
+            if (!targetDocId) {
+              return;
+            }
+
+            const session = await ensureDocumentSession(targetDocId);
+            syncClientWithSession(targetDocId, ws, session.content, session.version);
+            return;
+          }
+
           case "cursor": {
             if (!currentDocId || !currentClientId) {
               return;
