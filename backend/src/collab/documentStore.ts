@@ -5,20 +5,36 @@ export interface DocumentSnapshot {
   version: number;
 }
 
-export async function loadDocumentSnapshot(docId: string): Promise<DocumentSnapshot> {
-  const document = await DocumentModel.findById(docId).lean();
+interface CachedSnapshot extends DocumentSnapshot {
+  expiresAt: number;
+}
 
-  if (!document) {
-    return {
-      content: "",
-      version: 0,
-    };
+const snapshotCache = new Map<string, CachedSnapshot>();
+const CACHE_TTL_MS = 60_000;
+
+export async function loadDocumentSnapshot(docId: string): Promise<DocumentSnapshot> {
+  const now = Date.now();
+  const cached = snapshotCache.get(docId);
+
+  if (cached && cached.expiresAt > now) {
+    return { content: cached.content, version: cached.version };
   }
 
-  return {
-    content: document.content ?? "",
-    version: document.version ?? 0,
-  };
+  const document = await DocumentModel.findById(docId).lean();
+
+  const snapshot: DocumentSnapshot = !document
+    ? { content: "", version: 0 }
+    : {
+        content: document.content ?? "",
+        version: document.version ?? 0,
+      };
+
+  snapshotCache.set(docId, {
+    ...snapshot,
+    expiresAt: now + CACHE_TTL_MS,
+  });
+
+  return snapshot;
 }
 
 export async function saveDocumentSnapshot(
@@ -26,6 +42,8 @@ export async function saveDocumentSnapshot(
   content: string,
   version: number
 ): Promise<void> {
+  snapshotCache.delete(docId);
+
   await DocumentModel.updateOne(
     { _id: docId },
     {
