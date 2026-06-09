@@ -80,4 +80,20 @@ router.put("/:id", async (req, res) => {
 	return res.json(doc);
 });
 
+router.delete("/:id", async (req, res) => {
+	const docId = req.params.id?.trim();
+
+	if (!docId) {
+		return res.status(400).json({ error: "invalid document id" });
+	}
+
+	const doc = await DocumentModel.findByIdAndDelete(docId).lean();
+
+	if (!doc) {
+		return res.status(404).json({ error: "Document not found" });
+	}
+
+	return res.status(204).send();
+});
+
 export default router;

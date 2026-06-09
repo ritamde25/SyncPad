@@ -1,7 +1,9 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useUserManager, getInitial, getClientDisplayName, getClientColor } from "@/hooks/useUserManager";
 import type { Cursor } from "@/hooks/socketProtocol";
 import { toApiUrl } from "@/lib/runtimeUrls";
 
@@ -10,117 +12,86 @@ interface EditorProps {
   title: string;
 }
 
-type RenderedCursor = Cursor & {
-  left: number;
-  top: number;
-  height: number;
-};
-
-function createMirror(textarea: HTMLTextAreaElement): HTMLDivElement {
-  const computedStyle = window.getComputedStyle(textarea);
-  const mirror = document.createElement("div");
-
-  mirror.style.position = "absolute";
-  mirror.style.visibility = "hidden";
-  mirror.style.whiteSpace = "pre-wrap";
-  mirror.style.wordWrap = "break-word";
-  mirror.style.overflow = "hidden";
-  mirror.style.boxSizing = computedStyle.boxSizing;
-  mirror.style.fontFamily = computedStyle.fontFamily;
-  mirror.style.fontSize = computedStyle.fontSize;
-  mirror.style.fontWeight = computedStyle.fontWeight;
-  mirror.style.fontStyle = computedStyle.fontStyle;
-  mirror.style.letterSpacing = computedStyle.letterSpacing;
-  mirror.style.lineHeight = computedStyle.lineHeight;
-  mirror.style.textTransform = computedStyle.textTransform;
-  mirror.style.textAlign = computedStyle.textAlign;
-  mirror.style.padding = computedStyle.padding;
-  mirror.style.border = computedStyle.border;
-  mirror.style.width = `${textarea.clientWidth}px`;
-
-  return mirror;
+function getDisplayName(cursor: Cursor, fallbackGetDisplayName: (userId: string) => string): string {
+  return cursor.userName || fallbackGetDisplayName(cursor.userId);
 }
 
-function measureCursorPosition(
-  textarea: HTMLTextAreaElement,
-  value: string,
-  position: number
-): { left: number; top: number; height: number } {
-  const mirror = createMirror(textarea);
-  const safePosition = Math.max(0, Math.min(position, value.length));
+function renderContentWithCursors(
+  content: string,
+  cursors: Cursor[],
+  getClientColor: (id: string) => string,
+  getClientDisplayName: (id: string) => string
+) {
+  const sortedCursors = [...cursors].sort((a, b) => a.position - b.position);
+  const elements: React.ReactNode[] = [];
+  let lastPos = 0;
 
-  mirror.textContent = value.slice(0, safePosition);
+  sortedCursors.forEach((cursor) => {
+    const pos = Math.max(0, Math.min(cursor.position, content.length));
+    
+    if (pos > lastPos) {
+      elements.push(
+        <span key={`text-${lastPos}-${pos}`}>
+          {content.substring(lastPos, pos)}
+        </span>
+      );
+      lastPos = pos;
+    }
 
-  const marker = document.createElement("span");
-  marker.textContent = "\u200b";
-  marker.style.display = "inline-block";
-  marker.style.width = "0";
-  mirror.appendChild(marker);
-  document.body.appendChild(mirror);
+    const color = getClientColor(cursor.userId);
+    const displayName = getDisplayName(cursor, getClientDisplayName);
 
-  const mirrorRect = mirror.getBoundingClientRect();
-  const markerRect = marker.getBoundingClientRect();
-  const computedStyle = window.getComputedStyle(textarea);
-  const lineHeight = Number.parseFloat(computedStyle.lineHeight) || Number.parseFloat(computedStyle.fontSize) * 1.2;
-
-  const left = markerRect.left - mirrorRect.left - textarea.scrollLeft;
-  const top = markerRect.top - mirrorRect.top - textarea.scrollTop;
-
-  mirror.remove();
-
-  return {
-    left,
-    top,
-    height: Number.isFinite(lineHeight) ? lineHeight : 20,
-  };
-}
-
-function measureRemoteCursors(
-  textarea: HTMLTextAreaElement,
-  value: string,
-  cursors: Cursor[]
-): RenderedCursor[] {
-  return cursors.map((cursor) => {
-    const { left, top, height } = measureCursorPosition(textarea, value, cursor.position);
-
-    return {
-      ...cursor,
-      left,
-      top,
-      height,
-    };
+    elements.push(
+      <span
+        key={`cursor-${cursor.userId}`}
+        className="relative inline-block w-0 h-0 z-20 pointer-events-none"
+      >
+        <div
+          className="absolute w-0.5"
+          style={{ backgroundColor: color, height: '1.4em', top: '-1.1em' }}
+        />
+        <div
+          className="absolute left-0 px-1.5 py-0.5 rounded text-[10px] text-white font-medium whitespace-nowrap"
+          style={{ backgroundColor: color, top: '-2.5em' }}
+        >
+          {displayName}
+        </div>
+      </span>
+    );
   });
-}
 
-function colorFromClientId(clientId: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < clientId.length; i += 1) {
-    hash ^= clientId.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
+  if (lastPos < content.length) {
+    elements.push(
+      <span key={`text-${lastPos}-end`}>
+        {content.substring(lastPos)}
+      </span>
+    );
   }
 
-  const hue = (hash >>> 0) % 360;
-  const saturation = 72;
-  const lightness = 48;
-  return `hsl(${hue} ${saturation}% ${lightness}%)`;
+  if (content.endsWith('\n') || content.length === 0) {
+    elements.push(<span key="text-end-br">{"\u200B"}</span>);
+  }
+
+  return elements;
 }
 
 export function Editor({ docId, title: initialTitle }: EditorProps) {
+  const router = useRouter();
   const [title, setTitle] = useState(initialTitle);
   const [draftTitle, setDraftTitle] = useState(initialTitle);
-  const [cursorLayoutTick, setCursorLayoutTick] = useState(0);
-  const [renderedCursors, setRenderedCursors] = useState<RenderedCursor[]>([]);
+  const [showShareTooltip, setShowShareTooltip] = useState(false);
+  const [showNameDialog, setShowNameDialog] = useState(false);
+  const [draftUserName, setDraftUserName] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  
+  const { user, mounted, updateUserName } = useUserManager();
 
-  const { content, isConnected, sendUpdate, sendCursor, localCursor, remoteCursors } = useWebSocket(docId);
+  const { content, isConnected, sendUpdate, sendCursor, localCursor, remoteCursors } = useWebSocket(docId, user?.name);
 
   const reportCursor = () => {
     const textarea = textareaRef.current;
-
-    if (!textarea) {
-      return;
-    }
-
+    if (!textarea) return;
     sendCursor(textarea.selectionStart ?? 0, textarea.selectionEnd ?? undefined);
   };
 
@@ -131,8 +102,7 @@ export function Editor({ docId, title: initialTitle }: EditorProps) {
   };
 
   const handleSaveTitle = async () => {
-    const newTitle = draftTitle.trim() || "New Document";
-
+    const newTitle = draftTitle.trim() || "Untitled";
     if (newTitle === title) return;
 
     const response = await fetch(toApiUrl(`/documents/${docId}`), {
@@ -158,25 +128,63 @@ export function Editor({ docId, title: initialTitle }: EditorProps) {
     }
   };
 
+  const handleCopyLink = async () => {
+    const link = `${window.location.origin}/doc?docId=${docId}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setShowShareTooltip(true);
+      setTimeout(() => setShowShareTooltip(false), 2000);
+    } catch {
+      const textArea = document.createElement("textarea");
+      textArea.value = link;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-999999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setShowShareTooltip(true);
+        setTimeout(() => setShowShareTooltip(false), 2000);
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    }
+  };
+
+  const handleNameClick = () => {
+    setDraftUserName(user?.name || "");
+    setShowNameDialog(true);
+  };
+
+  const handleNameSave = () => {
+    const newName = draftUserName.trim();
+    if (newName) {
+      updateUserName(newName);
+    }
+    setShowNameDialog(false);
+  };
+
+  const handleNameCancel = () => {
+    setShowNameDialog(false);
+  };
+
+  // Stats
   const words = content.trim() ? content.trim().split(/\s+/).length : 0;
   const chars = content.length;
+  const lines = content.split("\n").length;
+  const paragraphs = content.trim() ? content.split(/\n\s*\n/).filter(p => p.trim()).length : 0;
+  const readingTime = Math.ceil(words / 200);
+
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (overlayRef.current) {
+      overlayRef.current.scrollTop = e.currentTarget.scrollTop;
+      overlayRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    }
+  };
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
-
-    if (!textarea) {
-      return;
-    }
-
-    setRenderedCursors(measureRemoteCursors(textarea, content, remoteCursors));
-  }, [content, cursorLayoutTick, remoteCursors]);
-
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-
-    if (!textarea || !localCursor || document.activeElement !== textarea) {
-      return;
-    }
+    if (!textarea || !localCursor || document.activeElement !== textarea) return;
 
     const selectionStart = Math.max(0, Math.min(localCursor.position, content.length));
     const selectionEnd = Math.max(0, Math.min(localCursor.selectionEnd ?? localCursor.position, content.length));
@@ -186,125 +194,271 @@ export function Editor({ docId, title: initialTitle }: EditorProps) {
     }
   }, [content, localCursor]);
 
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-
-    if (!textarea) {
-      return;
+  useEffect(() => {
+    if (isConnected && textareaRef.current) {
+      sendCursor(0, undefined);
     }
+  }, [isConnected, sendCursor]);
 
-    const handleScroll = () => {
-      setCursorLayoutTick((value) => value + 1);
-    };
-
-    textarea.addEventListener("scroll", handleScroll);
-    window.addEventListener("resize", handleScroll);
-
-    return () => {
-      textarea.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", handleScroll);
-    };
-  }, []);
+  if (!mounted || !user) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-zinc-950 flex items-center justify-center">
+        <div className="flex items-center gap-2 text-zinc-400 dark:text-zinc-500">
+          <div className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+          <span className="text-sm font-medium">Loading editor...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-screen w-full bg-zinc-50 dark:bg-zinc-900">
+    <div className="h-screen w-full bg-white dark:bg-zinc-950 flex flex-col font-sans">
       {/* Header */}
-      <div className="border-b border-zinc-200 dark:border-zinc-800 bg-white/90 dark:bg-zinc-800/90 backdrop-blur px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="w-fit">
+      <header className="flex-none h-14 border-b border-zinc-200 dark:border-zinc-800/80 bg-white/50 dark:bg-zinc-950/50 backdrop-blur-md px-4 flex items-center justify-between z-20">
+        <div className="flex items-center gap-4 flex-1 min-w-0">
+          <button
+            onClick={() => router.push("/")}
+            className="group flex flex-shrink-0 items-center justify-center w-8 h-8 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all"
+            title="Go back"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transform group-hover:-translate-x-0.5 transition-transform">
+              <path d="M19 12H5"></path>
+              <path d="M12 19l-7-7 7-7"></path>
+            </svg>
+          </button>
+          
+          <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block" />
+          
+          <div className="flex-1 max-w-md relative flex items-center">
             <input
               type="text"
               value={draftTitle}
               onChange={(e) => setDraftTitle(e.target.value)}
               onKeyDown={handleTitleKeyDown}
               onBlur={handleSaveTitle}
-              className="text-2xl font-semibold text-zinc-900 dark:text-white bg-transparent px-2 py-1 rounded-lg border border-transparent hover:bg-zinc-100 dark:hover:bg-zinc-700/70 focus:bg-white dark:focus:bg-zinc-700 focus:border-indigo-500 outline-none w-full"
-              title="Rename document"
+              className="w-full text-sm font-medium text-zinc-900 dark:text-zinc-100 bg-transparent border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 focus:border-zinc-300 dark:focus:border-zinc-700 outline-none placeholder-zinc-400 dark:placeholder-zinc-600 rounded px-2 py-1 transition-colors"
+              placeholder="Untitled Document"
+              spellCheck={false}
             />
           </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            <div
-              className={`flex items-center gap-2 px-3 py-2 rounded-full ${
-                isConnected
-                  ? "bg-green-100 dark:bg-green-900"
-                  : "bg-red-100 dark:bg-red-900"
-              }`}
-            >
-              <div
-                className={`h-2 w-2 rounded-full ${
-                  isConnected ? "bg-green-600" : "bg-red-600"
-                }`}
-              />
-              <span
-                className={`text-sm font-medium ${
-                  isConnected
-                    ? "text-green-800 dark:text-green-200"
-                    : "text-red-800 dark:text-red-200"
-                }`}
-              >
-                {isConnected ? "Connected" : "Disconnected"}
-              </span>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          {/* Active Status */}
+          <div className="hidden md:flex items-center gap-2 text-xs mr-2">
+            <div className="relative flex h-2 w-2">
+              {isConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isConnected ? "bg-emerald-500" : "bg-red-500"}`}></span>
             </div>
+            <span className="text-zinc-500 dark:text-zinc-400 font-medium">{isConnected ? "Connected" : "Reconnecting..."}</span>
+          </div>
+
+          <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block mx-1" />
+
+          {remoteCursors.length > 0 && (
+            <div className="flex -space-x-2">
+              {remoteCursors.slice(0, 3).map((cursor) => {
+                const displayName = getDisplayName(cursor, getClientDisplayName);
+                const color = getClientColor(cursor.userId);
+                return (
+                  <div
+                    key={cursor.userId}
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-semibold ring-2 ring-white dark:ring-zinc-950 shadow-sm transition-transform hover:-translate-y-0.5 hover:z-10 z-0"
+                    style={{ backgroundColor: color }}
+                    title={displayName}
+                  >
+                    {getInitial(displayName)}
+                  </div>
+                );
+              })}
+              {remoteCursors.length > 3 && (
+                <div className="w-7 h-7 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] font-semibold ring-2 ring-white dark:ring-zinc-950 shadow-sm">
+                  +{remoteCursors.length - 3}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={handleNameClick}
+            className="flex flex-shrink-0 items-center justify-center w-7 h-7 rounded-full ring-2 ring-white dark:ring-zinc-950 text-white text-[11px] font-semibold shadow-sm hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: getClientColor(user.id) }}
+            title={`You: ${user.name}\nClick to change name`}
+          >
+            {getInitial(user.name)}
+          </button>
+          
+          <div className="relative">
+            <button
+              onClick={handleCopyLink}
+              className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 rounded-md text-sm font-medium transition-colors shadow-sm"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                <polyline points="16 6 12 2 8 6"></polyline>
+                <line x1="12" y1="2" x2="12" y2="15"></line>
+              </svg>
+              <span className="hidden sm:inline">Share</span>
+            </button>
+            
+            {showShareTooltip && (
+              <div className="absolute top-[calc(100%+0.5rem)] right-0 px-2.5 py-1.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-xs font-medium rounded-md shadow-lg whitespace-nowrap animate-in fade-in slide-in-from-top-1">
+                Link copied to clipboard!
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Editor */}
-      <div className="flex-1 overflow-hidden">
-        <div className="h-full max-w-5xl mx-auto w-full px-4 sm:px-8 py-6">
-          <div className="relative h-full">
-            {renderedCursors.map((cursor) => {
-              const cursorColor = colorFromClientId(cursor.userId);
-
-              return (
-                <div
-                  key={cursor.userId}
-                  className="absolute pointer-events-none z-20"
-                  style={{
-                    left: `${cursor.left}px`,
-                    top: `${cursor.top}px`,
-                    height: `${cursor.height}px`,
-                  }}
-                  aria-hidden="true"
-                >
-                  <div
-                    className="remote-cursor-line h-full w-0.5"
-                    style={{
-                      backgroundColor: cursorColor,
-                      boxShadow: `0 0 0 1px color-mix(in srgb, ${cursorColor} 25%, transparent)`,
-                    }}
-                  />
-                </div>
-              );
-            })}
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Editor Area */}
+        <div className="flex-1 overflow-hidden relative flex justify-center bg-white dark:bg-zinc-950">
+          <div className="w-full max-w-[800px] h-full relative">
+            <div
+              ref={overlayRef}
+              className="absolute inset-y-0 left-0 right-0 z-0 pointer-events-none px-8 sm:px-12 py-16 text-base sm:text-lg whitespace-pre-wrap break-words overflow-auto text-transparent"
+              style={{
+                fontFamily: 'var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif',
+                lineHeight: '1.7',
+              }}
+              aria-hidden="true"
+            >
+              {renderContentWithCursors(content, remoteCursors, getClientColor, getClientDisplayName)}
+            </div>
             <textarea
               ref={textareaRef}
               value={content}
               onChange={handleChange}
+              onScroll={handleScroll}
               onSelect={reportCursor}
               onClick={reportCursor}
               onKeyUp={reportCursor}
               onMouseUp={reportCursor}
               onFocus={reportCursor}
               placeholder="Start writing..."
-              className="relative z-10 h-full w-full p-6 sm:p-8 border border-zinc-200 dark:border-zinc-800 rounded-2xl outline-none resize-none text-base sm:text-lg leading-8 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 shadow-sm focus:ring-2 focus:ring-indigo-500/40"
+              className="absolute inset-y-0 left-0 right-0 z-10 w-full h-full px-8 sm:px-12 py-16 text-base sm:text-lg text-zinc-900 dark:text-zinc-100 placeholder-zinc-300 dark:placeholder-zinc-700 bg-transparent border-0 outline-none resize-none whitespace-pre-wrap break-words"
+              style={{
+                fontFamily: 'var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif',
+                lineHeight: '1.7',
+              }}
             />
           </div>
         </div>
-      </div>
 
-      {/* Footer */}
-      <div className="border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-800 px-6 py-3">
-        <div className="flex items-center justify-between gap-4 text-xs text-zinc-600 dark:text-zinc-400">
-          <p>
-            {words} words • {chars} characters
-          </p>
-          <p className="truncate">
-            Share: <span className="font-mono text-zinc-900 dark:text-white">/doc?docId={docId}</span>
-          </p>
+        {/* Right Sidebar with Stats */}
+        <div className="w-64 flex-shrink-0 border-l border-zinc-200/60 dark:border-zinc-800/60 bg-zinc-50/30 dark:bg-zinc-900/10 hidden lg:flex flex-col">
+          <div className="p-6 space-y-8 overflow-y-auto w-full">
+            {/* Document Info */}
+            <div>
+              <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-400">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+                Document Info
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-zinc-500 dark:text-zinc-400">Words</span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">{words}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-zinc-500 dark:text-zinc-400">Characters</span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">{chars}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-zinc-500 dark:text-zinc-400">Lines</span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">{lines}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-zinc-500 dark:text-zinc-400">Paragraphs</span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">{paragraphs}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm pt-3 mt-3 border-t border-zinc-200 dark:border-zinc-800/60">
+                  <span className="text-zinc-500 dark:text-zinc-400">Reading time</span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">{readingTime} min</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Active Clients */}
+            {remoteCursors.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-400">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                  </svg>
+                  Active Writers
+                </h3>
+                <div className="space-y-3">
+                  {remoteCursors.map((cursor) => {
+                    const displayName = getDisplayName(cursor, getClientDisplayName);
+                    const color = getClientColor(cursor.userId);
+                    return (
+                      <div key={cursor.userId} className="flex items-center gap-2.5">
+                        <div 
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-semibold"
+                          style={{ backgroundColor: color }}
+                        >
+                          {getInitial(displayName)}
+                        </div>
+                        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">{displayName}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+      
+      {/* Name Change Dialog */}
+      {showNameDialog && (
+        <div className="fixed inset-0 bg-zinc-900/40 dark:bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200/80 dark:border-zinc-800 shadow-2xl p-6 w-full max-w-sm animate-in zoom-in-95 duration-200">
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-white mb-1">
+              What's your name?
+            </h3>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-5">
+              This will be visible to other people editing this document.
+            </p>
+            <input
+              type="text"
+              value={draftUserName}
+              onChange={(e) => setDraftUserName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleNameSave();
+                else if (e.key === "Escape") handleNameCancel();
+              }}
+              className="w-full px-3.5 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-lg outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white transition-all mb-6 placeholder-zinc-400"
+              placeholder="e.g. Jane Doe"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={handleNameCancel}
+                className="px-4 py-2 text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleNameSave}
+                className="px-4 py-2 text-sm font-medium bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-lg hover:opacity-90 shadow-sm transition-opacity"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

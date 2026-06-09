@@ -10,12 +10,10 @@ interface DocumentInfo {
 }
 
 interface EditorPageProps {
-  params: {
-    id: string;
-  };
+  docId: string;
 }
 
-export function EditorPage({ params }: EditorPageProps) {
+export function EditorPage({ docId }: EditorPageProps) {
   const [doc, setDoc] = useState<DocumentInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -26,7 +24,7 @@ export function EditorPage({ params }: EditorPageProps) {
       setLoading(true);
 
       try {
-        const response = await fetch(toApiUrl(`/documents/${params.id}`));
+        const response = await fetch(toApiUrl(`/documents/${docId}`));
 
         if (!response.ok) {
           if (!cancelled) {
@@ -57,7 +55,7 @@ export function EditorPage({ params }: EditorPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [params.id]);
+  }, [docId]);
 
   if (loading) {
     return (
@@ -77,5 +75,5 @@ export function EditorPage({ params }: EditorPageProps) {
     );
   }
 
-  return <Editor docId={params.id} title={doc.title} />;
+  return <Editor docId={docId} title={doc.title} />;
 }

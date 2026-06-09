@@ -27,17 +27,6 @@ function startAutoSave(docId: string): void {
   saveTimers.set(docId, timer);
 }
 
-export function getDocumentSession(docId: string): DocumentSession {
-  let session = sessions.get(docId);
-
-  if (!session) {
-    session = new DocumentSession();
-    sessions.set(docId, session);
-  }
-
-  return session;
-}
-
 export function peekDocumentSession(docId: string): DocumentSession | undefined {
   return sessions.get(docId);
 }
@@ -119,11 +108,4 @@ export async function flushDocumentSession(docId: string): Promise<void> {
   if (shouldFlushAgain && session.dirty) {
     void flushDocumentSession(docId);
   }
-}
-
-export function clearDocumentSessions(): void {
-  saveTimers.forEach((timer) => clearInterval(timer));
-  saveTimers.clear();
-  loadingSessions.clear();
-  sessions.clear();
 }

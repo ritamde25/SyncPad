@@ -12,7 +12,7 @@ function DocContent() {
     return <div>Missing document id.</div>;
   }
 
-  return <EditorPage params={{ id: docId }} />;
+  return <EditorPage docId={docId} />;
 }
 
 export default function DocPage() {

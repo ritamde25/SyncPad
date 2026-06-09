@@ -6,6 +6,7 @@ import type { Operation } from "./operation.js";
 
 export interface Cursor {
   userId: string;
+  userName?: string;
   position: number;
   selectionEnd?: number;
 }
@@ -14,6 +15,7 @@ export interface JoinMessage {
   type: "join";
   docId: string;
   clientId: string;
+  userName?: string;
 }
 
 export interface OperationMessage {
@@ -37,21 +39,15 @@ export interface InitMessage {
   version: number;
 }
 
-export interface BroadcastOperationMessage {
-  type: "operation";
-  operation: Operation;
-}
-
-export interface BroadcastCursorMessage {
-  type: "cursor";
-  cursor: Cursor;
-}
-
 export interface CursorRemoveMessage {
   type: "cursor-remove";
   userId: string;
 }
 
-export type ClientMessage = JoinMessage | OperationMessage | CursorMessage | ResyncMessage;
-export type ServerMessage = InitMessage | BroadcastOperationMessage | BroadcastCursorMessage | CursorRemoveMessage;
+export interface ActiveUsersMessage {
+  type: "active-users";
+  cursors: Cursor[];
+}
 
+export type ClientMessage = JoinMessage | OperationMessage | CursorMessage | ResyncMessage;
+export type ServerMessage = InitMessage | OperationMessage | CursorMessage | CursorRemoveMessage | ActiveUsersMessage;

@@ -1,14 +1,15 @@
 import WebSocket, { WebSocketServer } from "ws";
-import { joinRoom, leaveRoom, broadcast } from "./connectionManager.js";
+import { joinRoom, leaveRoom, broadcast, updateCursor, getActiveCursors } from "./connectionManager.js";
 import { ensureDocumentSession, markDocumentSessionDirty, peekDocumentSession } from "../collab/documentSession.js";
 import { applyOperation } from "../collab/applyOperation.js";
 import { transform } from "../collab/transformer.js";
 import type {
   InitMessage,
-  BroadcastOperationMessage,
-  BroadcastCursorMessage,
+  OperationMessage,
+  CursorMessage,
   ClientMessage,
   CursorRemoveMessage,
+  ActiveUsersMessage,
 } from "../types/messages.js";
 import type { Operation } from "../types/operation.js";
 import { onRedisOperation, publishOperation, subscribeToDocument, unsubscribeFromDocument } from "../redis/pubsub.js";
@@ -23,10 +24,20 @@ function syncClientWithSession(docId: string, ws: WebSocket, content: string, ve
   };
 
   ws.send(JSON.stringify(initMessage));
+
+  // Send active users list to the new joiner
+  const activeCursors = getActiveCursors(docId);
+  if (activeCursors.length > 0) {
+    const activeUsersMessage: ActiveUsersMessage = {
+      type: "active-users",
+      cursors: activeCursors,
+    };
+    ws.send(JSON.stringify(activeUsersMessage));
+  }
 }
 
 function broadcastOperation(docId: string, operation: Operation): void {
-  const updateMessage: BroadcastOperationMessage = {
+  const updateMessage: OperationMessage = {
     type: "operation",
     operation,
   };
@@ -156,7 +167,15 @@ export function setupWebSocket(server: any): void {
 
             const cursor = parsedMessage.cursor;
 
-            const cursorMessage: BroadcastCursorMessage = {
+            // Track cursor position for new joiners
+            updateCursor(currentDocId, ws, {
+              userId: currentClientId,
+              userName: cursor.userName,
+              position: cursor.position,
+              selectionEnd: cursor.selectionEnd,
+            });
+
+            const cursorMessage: CursorMessage = {
               type: "cursor",
               cursor: {
                 ...cursor,

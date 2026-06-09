@@ -2,6 +2,7 @@ import type { Operation } from "./collabOperations";
 
 export interface Cursor {
   userId: string;
+  userName?: string;
   position: number;
   selectionEnd?: number;
 }
@@ -10,6 +11,7 @@ export interface JoinMessage {
   type: "join";
   docId: string;
   clientId: string;
+  userName?: string;
 }
 
 export interface InitMessage {
@@ -38,9 +40,13 @@ export interface CursorRemoveMessage {
   userId: string;
 }
 
+export interface ActiveUsersMessage {
+  type: "active-users";
+  cursors: Cursor[];
+}
+
 export type ClientMessage = JoinMessage | OperationMessage | CursorMessage | ResyncMessage;
-export type ServerMessage = InitMessage | OperationMessage | CursorMessage | CursorRemoveMessage;
-export type WebSocketMessage = ClientMessage | ServerMessage;
+export type ServerMessage = InitMessage | OperationMessage | CursorMessage | CursorRemoveMessage | ActiveUsersMessage;
 
 export function generateId(prefix: string): string {
   return `${prefix}-${globalThis.crypto.randomUUID()}`;

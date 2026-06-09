@@ -22,15 +22,8 @@ function getDeleteLength(op: Operation): number {
   return Math.max(0, op.length ?? 0);
 }
 
-function cloneOperation(op: Operation): Operation {
-  return {
-    ...op,
-    value: op.value,
-  };
-}
-
 export function transform(incoming: Operation, existing: Operation): Operation {
-  const transformed = cloneOperation(incoming);
+  const transformed = { ...incoming };
 
   if (existing.type === "insert") {
     const existingLength = getInsertLength(existing);

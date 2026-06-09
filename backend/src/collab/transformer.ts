@@ -1,12 +1,5 @@
 import type { Operation } from "../types/operation.js";
 
-function cloneOperation(op: Operation): Operation {
-  return {
-    ...op,
-    value: op.value,
-  };
-}
-
 function getInsertLength(op: Operation): number {
   return op.value?.length ?? 0;
 }
@@ -16,7 +9,7 @@ function getDeleteLength(op: Operation): number {
 }
 
 export function transform(incoming: Operation, existing: Operation): Operation {
-  const transformed = cloneOperation(incoming);
+  const transformed = { ...incoming };
 
   if (existing.type === "insert") {
     const existingLength = getInsertLength(existing);

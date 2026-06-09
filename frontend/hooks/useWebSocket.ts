@@ -38,7 +38,7 @@ function transformCursor(cursor: Cursor, operation: Operation): Cursor {
   return nextCursor;
 }
 
-export function useWebSocket(docId: string) {
+export function useWebSocket(docId: string, userName?: string) {
   const [content, setContent] = useState<string>("");
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [remoteCursors, setRemoteCursors] = useState<Cursor[]>([]);
@@ -49,9 +49,29 @@ export function useWebSocket(docId: string) {
   const pendingOperationsRef = useRef<Operation[]>([]);
   const resyncRequestedRef = useRef<boolean>(false);
   const clientIdRef = useRef<string>("");
+  const userNameRef = useRef<string>(userName || "");
   const remoteCursorsRef = useRef<Map<string, Cursor>>(new Map());
   const lastCursorSignatureRef = useRef<string>("");
   const localCursorRef = useRef<Cursor | null>(null);
+
+  useEffect(() => {
+    const nextUserName = userName || "";
+    const userNameChanged = userNameRef.current !== nextUserName;
+    userNameRef.current = nextUserName;
+
+    if (!userNameChanged || wsRef.current?.readyState !== WebSocket.OPEN || !localCursorRef.current) {
+      return;
+    }
+
+    const cursorMessage: ClientMessage = {
+      type: "cursor",
+      cursor: {
+        ...localCursorRef.current,
+        userName: nextUserName,
+      },
+    };
+    wsRef.current.send(JSON.stringify(cursorMessage));
+  }, [userName]);
 
   const syncRemoteCursors = useCallback(() => {
     setRemoteCursors(Array.from(remoteCursorsRef.current.values()));
@@ -127,6 +147,7 @@ export function useWebSocket(docId: string) {
         type: "join",
         docId,
         clientId: clientIdRef.current,
+        userName: userNameRef.current,
       };
       ws.send(JSON.stringify(joinMessage));
     };
@@ -170,6 +191,17 @@ export function useWebSocket(docId: string) {
 
         if (parsedMessage.type === "cursor-remove") {
           remoteCursorsRef.current.delete(parsedMessage.userId);
+          syncRemoteCursors();
+          return;
+        }
+
+        if (parsedMessage.type === "active-users") {
+          // Add all active users to the remote cursors
+          parsedMessage.cursors.forEach((cursor) => {
+            if (cursor.userId !== clientIdRef.current) {
+              remoteCursorsRef.current.set(cursor.userId, cursor);
+            }
+          });
           syncRemoteCursors();
           return;
         }
@@ -310,6 +342,7 @@ export function useWebSocket(docId: string) {
       type: "cursor",
       cursor: {
         userId: clientIdRef.current,
+        userName: userNameRef.current,
         position,
         selectionEnd: normalizedSelectionEnd,
       },
