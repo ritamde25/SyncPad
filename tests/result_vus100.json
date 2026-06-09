@@ -1,0 +1,140 @@
+{
+    "metrics": {
+        "ws_msgs_sent": {
+            "count": 14098,
+            "rate": 65.57161425897645
+        },
+        "vus_max": {
+            "value": 101,
+            "min": 101,
+            "max": 101
+        },
+        "ws_connect_time": {
+            "avg": 1808.0375,
+            "min": 351,
+            "med": 1551,
+            "max": 28333,
+            "p(90)": 2692.9,
+            "p(95)": 4769.749999999998,
+            "thresholds": {
+                "p(95)<2500": true
+            }
+        },
+        "iterations": {
+            "count": 399,
+            "rate": 1.8558004035559372
+        },
+        "ws_connecting": {
+            "min": 348.631,
+            "med": 1550.5683,
+            "max": 28332.8056,
+            "p(90)": 2692.0777,
+            "p(95)": 4768.2377,
+            "avg": 1804.4536112219466
+        },
+        "vus": {
+            "value": 2,
+            "min": 1,
+            "max": 101
+        },
+        "ws_msgs_received": {
+            "count": 1333761,
+            "rate": 6203.494240719725
+        },
+        "data_received": {
+            "count": 247795428,
+            "rate": 1152528.459352672
+        },
+        "iteration_duration": {
+            "med": 46549.7132,
+            "max": 73333.888,
+            "p(90)": 47690.01422,
+            "p(95)": 49768.89959,
+            "avg": 46784.97751403511,
+            "min": 45350.9402
+        },
+        "ws_session_duration": {
+            "avg": 46784.556669172955,
+            "min": 45350.9402,
+            "med": 46549.1248,
+            "max": 73333.128,
+            "p(90)": 47690.01422,
+            "p(95)": 49768.2702
+        },
+        "ws_init_time": {
+            "min": 450,
+            "med": 1719,
+            "max": 28469,
+            "p(90)": 2820.2000000000007,
+            "p(95)": 4873.349999999998,
+            "avg": 1962.485,
+            "thresholds": {
+                "p(95)<3000": true
+            }
+        },
+        "checks": {
+            "passes": 1194,
+            "fails": 0,
+            "thresholds": {
+                "rate>0.99": false
+            },
+            "value": 1
+        },
+        "data_sent": {
+            "rate": 17021.782693979196,
+            "count": 3659710
+        },
+        "ws_op_ack_time": {
+            "med": 458,
+            "max": 5819,
+            "p(90)": 951.8999999999996,
+            "p(95)": 1198.949999999999,
+            "avg": 550.0137628329118,
+            "min": 88,
+            "thresholds": {
+                "p(95)<250": true
+            }
+        },
+        "op_ack_success_rate": {
+            "passes": 13442,
+            "fails": 219,
+            "thresholds": {
+                "rate>0.99": true
+            },
+            "value": 0.9839689627406486
+        },
+        "ws_sessions": {
+            "count": 401,
+            "rate": 1.8651026612178718
+        }
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "ws upgraded": {
+                    "name": "ws upgraded",
+                    "path": "::ws upgraded",
+                    "id": "072c61afd0cd3b15887ec7b435c5afdc",
+                    "passes": 398,
+                    "fails": 0
+                },
+                "joined after connect": {
+                    "name": "joined after connect",
+                    "path": "::joined after connect",
+                    "id": "40a7a2596082442b72fb7aa512b9e008",
+                    "passes": 398,
+                    "fails": 0
+                },
+                "ws upgraded and joined": {
+                    "fails": 0,
+                    "name": "ws upgraded and joined",
+                    "path": "::ws upgraded and joined",
+                    "id": "5b09b2d98dd5cab984afb2fe1616bfa3",
+                    "passes": 398
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}
